@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <title>無情 AI 唱歌評分系統</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; background-color: #222; color: white;}
+        #healthBar { width: 80%; height: 30px; margin: 20px auto; background-color: red; }
+        #health { width: 100%; height: 100%; background-color: green; transition: width 0.1s; }
+        .data-box { margin-top: 20px; font-size: 1.2em; }
+        button { padding: 10px 20px; font-size: 1.2em; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>🎙️ 無情音準測試儀</h1>
+    <p>目標音高：C4 (約 261.6 Hz) - 試著唱出這個音！</p>
+    
+    <button id="startBtn">開始測試 (允許麥克風)</button>
+
+    <div id="healthBar"><div id="health"></div></div>
+    
+    <div class="data-box">
+        <p>目前你的音高: <span id="pitch">--</span> Hz</p>
+        <p>血量: <span id="hp">100</span>%</p>
+    </div>
+
+    <script>
+        let audioContext;
+        let analyser;
+        let microphone;
+        let isPlaying = false;
+        let hp = 100;
+        
+        // 設定目標音高與容錯率 (C4 音約 261.63 Hz)
+        const TARGET_PITCH = 261.63; 
+        const TOLERANCE = 15; // 容許誤差 Hz
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            if (isPlaying) return;
+            
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                isPlaying = true;
+                updatePitch();
+            } catch (err) {
+                alert('無法存取麥克風！');
+            }
+        });
+
+        // 簡化的自相關演算法 (Autocorrelation) 來找尋音高
+        function autoCorrelate(buf, sampleRate) {
+            let SIZE = buf.length;
+            let rms = 0;
+            for (let i = 0; i < SIZE; i++) {
+                let val = buf[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / SIZE);
+            if (rms < 0.01) return -1; // 聲音太小，當作沒聲音
+
+            let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+            for (let i = 0; i < SIZE / 2; i++)
+                if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+            for (let i = 1; i < SIZE / 2; i++)
+                if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+            buf = buf.slice(r1, r2);
+            SIZE = buf.length;
+
+            let c = new Array(SIZE).fill(0);
+            for (let i = 0; i < SIZE; i++)
+                for (let j = 0; j < SIZE - i; j++)
+                    c[i] = c[i] + buf[j] * buf[j + i];
+
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < SIZE; i++) {
+                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+            }
+            let T0 = maxpos;
+            return sampleRate / T0;
+        }
+
+        function updatePitch() {
+            if (!isPlaying || hp <= 0) return;
+
+            let buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            let pitch = autoCorrelate(buffer, audioContext.sampleRate);
+
+            if (pitch !== -1) {
+                document.getElementById('pitch').innerText = Math.round(pitch);
+                
+                // 無情扣血邏輯：如果偵測到的音高跟目標相差超過容錯率，就扣血
+                if (Math.abs(pitch - TARGET_PITCH) > TOLERANCE) {
+                    hp -= 0.5; // 音準歪了！狂扣血
+                } else {
+                    // 唱對了可以微量回血 (可選)
+                    if(hp < 100) hp += 0.2; 
+                }
+            } else {
+                document.getElementById('pitch').innerText = "沒聲音";
+                // 該有聲音的時候沒聲音（漏拍），也扣血
+                hp -= 0.2; 
+            }
+
+            // 更新 UI
+            hp = Math.max(0, Math.min(100, hp));
+            document.getElementById('hp').innerText = hp.toFixed(1);
+            document.getElementById('health').style.width = hp + '%';
+
+            if (hp <= 0) {
+                alert("Game Over! 音準太飄了！");
+                isPlaying = false;
+            } else {
+                requestAnimationFrame(updatePitch);
+            }
+        }
+    </script>
+</body>
+</html>
