@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>陽光冒險：《我的驕傲》絕對音準篇</title>
+    <style>
+        /* 🌤️ 活潑陽光的冒險主題 */
+        body {
+            font-family: 'Comic Sans MS', 'Trebuchet MS', 'Microsoft JhengHei', sans-serif;
+            background: linear-gradient(to bottom, #87CEEB 0%, #E0F6FF 100%); 
+            color: #333;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 { 
+            color: #FF5722; 
+            text-shadow: 2px 2px 0px #FFE0B2, 4px 4px 0px rgba(0,0,0,0.1);
+            font-size: 2.2em;
+            margin-bottom: 5px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95); 
+            padding: 20px 30px;
+            border-radius: 20px;
+            border: 6px solid #FF9800; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        .subtitle {
+            color: #607D8B;
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        #gameCanvas {
+            background-color: #F1F8E9; 
+            border: 4px solid #4CAF50; 
+            border-radius: 15px;
+            margin-top: 10px;
+            width: 100%;
+            height: 350px;
+        }
+        .controls { margin-top: 20px; margin-bottom: 20px;}
+        button {
+            background: linear-gradient(180deg, #66BB6A, #43A047); 
+            color: white;
+            border: 3px solid #2E7D32;
+            padding: 15px 30px;
+            font-size: 20px;
+            border-radius: 50px; 
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 5px 0px #2E7D32; 
+        }
+        button:hover { transform: translateY(2px); box-shadow: 0 3px 0px #2E7D32; }
+        button:disabled { background: #B0BEC5; border-color: #90A4AE; cursor: not-allowed; box-shadow: none; transform: none;}
+        .status {
+            margin-top: 20px;
+            font-size: 1.3em;
+            color: #37474F;
+            background: #FFF9C4; 
+            padding: 15px;
+            border-radius: 12px;
+            border-left: 8px solid #FFC107; 
+        }
+        audio { width: 100%; margin-top: 10px; border-radius: 8px; }
+        #pitchDisplay { color: #1976D2; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>🌱 絕對音準大冒險：《我的驕傲》完整版 🎵</h1>
+        <div class="subtitle">🎯 唱出正確的音符！(系統會自動包容大人的低音與小孩的高音)</div>
+        
+        <div class="controls">
+            <button id="startBtn">1. 開啟精靈麥克風 (允許麥克風)</button>
+        </div>
+
+        <audio id="bgm" src="pride.mp3" controls preload="auto"></audio>
+
+        <canvas id="gameCanvas" width="900" height="350"></canvas>
+
+        <div class="status">
+            🎤 精靈偵測到的音高: <span id="pitchDisplay">--</span> Hz 
+            <br>
+            🎯 魔法判定: <span id="hitStatus" style="font-weight:bold; color:#FF9800;">等待音樂開始...</span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const audioPlayer = document.getElementById('bgm');
+        const pitchDisplay = document.getElementById('pitchDisplay');
+        const hitStatus = document.getElementById('hitStatus');
+        
+        let audioContext, analyser, microphone;
+        let isSystemReady = false;
+
+        // ==========================================
+        // 🎹 簡譜轉換器 (C大調基礎頻率)
+        // ==========================================
+        const PITCH_MAP = {
+            "低4": 174.61, "低5": 196.00, "低6": 220.00, "低7": 246.94,
+            "1": 261.63,   // Do
+            "2": 293.66,   // Re
+            "3": 329.63,   // Mi
+            "4": 349.23,   // Fa
+            "5": 392.00,   // Sol
+            "6": 440.00,   // La
+            "7": 493.88,   // Si
+            "高1": 523.25, // 高音 Do
+            "高2": 587.33, "高3": 659.25, "高4": 698.46
+        };
+
+        // 📝 你手敲的完整 172 字時間軸 + 我幫你配好的標準音高簡譜
+        const rawNotes = [
+          { time: 17.23, duration: 0.3, pitch: "3", text: "Pride" },
+          { time: 18.07, duration: 0.3, pitch: "2", text: "in" },
+          { time: 18.36, duration: 0.3, pitch: "1", text: "your" },
+          { time: 18.75, duration: 0.5, pitch: "低5", text: "eyes" },
+          { time: 19.43, duration: 0.3, pitch: "3", text: "為" },
+          { time: 19.78, duration: 0.3, pitch: "4", text: "我" },
+          { time: 20.15, duration: 0.3, pitch: "5", text: "改" },
+          { time: 20.46, duration: 0.3, pitch: "6", text: "寫" },
+          { time: 20.85, duration: 0.3, pitch: "6", text: "下" },
+          { time: 21.19, duration: 0.3, pitch: "5", text: "半" },
+          { time: 21.59, duration: 0.5, pitch: "4", text: "生" },
+          { time: 22.34, duration: 0.3, pitch: "2", text: "眉" },
+          { time: 22.69, duration: 0.3, pitch: "3", text: "目" },
+          { time: 23.08, duration: 0.3, pitch: "4", text: "裡" },
+          { time: 23.83, duration: 0.3, pitch: "5", text: "找" },
+          { time: 24.15, duration: 0.3, pitch: "5", text: "到" },
+          { time: 24.53, duration: 0.5, pitch: "3", text: "我" },
+          { time: 25.24, duration: 0.3, pitch: "1", text: "失" },
+          { time: 25.61, duration: 0.3, pitch: "2", text: "去" },
+          { time: 25.98, duration: 0.3, pitch: "3", text: "的" },
+          { time: 26.69, duration: 0.3, pitch: "1", text: "自" },
+          { time: 27.02, duration: 0.3, pitch: "2", text: "信" },
+          { time: 27.46, duration: 0.5, pitch: "1", text: "心" },
+          { time: 28.17, duration: 0.3, pitch: "1", text: "才" },
+          { time: 28.54, duration: 0.3, pitch: "2", text: "明" },
+          { time: 28.92, duration: 0.3, pitch: "3", text: "白" },
+          { time: 29.67, duration: 0.3, pitch: "5", text: "被" },
+          { time: 30.02, duration: 0.3, pitch: "4", text: "愛" },
+          { time: 30.41, duration: 0.3, pitch: "3", text: "的" },
+          { time: 31.14, duration: 0.3, pitch: "2", text: "能" },
+          { time: 31.50, duration: 0.3, pitch: "1", text: "活" },
+          { time: 31.90, duration: 0.3, pitch: "1", text: "得" },
+          { time: 32.24, duration: 0.3, pitch: "2", text: "這" },
+          { time: 32.56, duration: 0.3, pitch: "3", text: "樣" },
+          { time: 32.93, duration: 0.3, pitch: "2", text: "勇" },
+          { time: 33.34, duration: 0.5, pitch: "2", text: "敢" },
+          { time: 34.14, duration: 0.3, pitch: "3", text: "榮" },
+          { time: 34.46, duration: 0.3, pitch: "4", text: "幸" },
+          { time: 34.82, duration: 0.3, pitch: "5", text: "眼" },
+          { time: 35.15, duration: 0.3, pitch: "6", text: "神" },
+          { time: 35.50, duration: 0.3, pitch: "6", text: "能" },
+          { time: 35.83, duration: 0.3, pitch: "5", text: "替" },
+          { time: 36.22, duration: 0.3, pitch: "4", text: "我" },
+          { time: 37.04, duration: 0.3, pitch: "2", text: "雲" },
+          { time: 37.38, duration: 0.3, pitch: "3", text: "上" },
+          { time: 37.71, duration: 0.3, pitch: "4", text: "旅" },
+          { time: 38.05, duration: 0.3, pitch: "5", text: "行" },
+          { time: 38.38, duration: 0.3, pitch: "3", text: "來" },
+          { time: 38.73, duration: 0.3, pitch: "2", text: "點" },
+          { time: 39.15, duration: 0.5, pitch: "1", text: "燈" },
+          { time: 39.98, duration: 0.3, pitch: "3", text: "See" },
+          { time: 40.26, duration: 0.3, pitch: "2", text: "me" },
+          { time: 40.69, duration: 0.61, pitch: "1", text: "fly" },
+          { time: 41.80, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 42.07, duration: 0.3, pitch: "6", text: "proud" },
+          { time: 42.44, duration: 0.3, pitch: "高1", text: "to" },
+          { time: 42.81, duration: 0.3, pitch: "高2", text: "fly" },
+          { time: 43.16, duration: 0.3, pitch: "高3", text: "up" },
+          { time: 43.55, duration: 0.19, pitch: "高1", text: "high" },
+          { time: 44.61, duration: 0.3, pitch: "6", text: "不" },
+          { time: 44.99, duration: 0.3, pitch: "5", text: "因" },
+          { time: 45.35, duration: 0.3, pitch: "4", text: "氣" },
+          { time: 45.71, duration: 0.3, pitch: "3", text: "壓" },
+          { time: 46.04, duration: 0.3, pitch: "2", text: "搖" },
+          { time: 46.47, duration: 0.5, pitch: "1", text: "擺" },
+          { time: 47.68, duration: 0.3, pitch: "5", text: "只" },
+          { time: 47.98, duration: 0.3, pitch: "4", text: "因" },
+          { time: 48.35, duration: 0.3, pitch: "3", text: "有" },
+          { time: 48.67, duration: 0.3, pitch: "2", text: "你" },
+          { time: 49.02, duration: 0.3, pitch: "4", text: "擁" },
+          { time: 49.44, duration: 0.5, pitch: "3", text: "戴" },
+          { time: 50.45, duration: 0.3, pitch: "5", text: "Be" },
+          { time: 50.84, duration: 0.3, pitch: "4", text: "lieve" },
+          { time: 51.22, duration: 0.3, pitch: "3", text: "me" },
+          { time: 51.62, duration: 0.3, pitch: "2", text: "I" },
+          { time: 51.95, duration: 0.3, pitch: "1", text: "can" },
+          { time: 52.35, duration: 0.5, pitch: "4", text: "fly" },
+          { time: 53.36, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 53.75, duration: 0.3, pitch: "6", text: "sing" },
+          { time: 54.13, duration: 0.3, pitch: "高1", text: "ing" },
+          { time: 54.54, duration: 0.3, pitch: "高2", text: "in" },
+          { time: 54.89, duration: 0.3, pitch: "高3", text: "the" },
+          { time: 55.30, duration: 0.5, pitch: "高1", text: "sky" },
+          { time: 56.33, duration: 0.3, pitch: "6", text: "假" },
+          { time: 56.71, duration: 0.3, pitch: "5", text: "使" },
+          { time: 57.08, duration: 0.3, pitch: "4", text: "我" },
+          { time: 57.43, duration: 0.3, pitch: "3", text: "算" },
+          { time: 57.81, duration: 0.3, pitch: "2", text: "神" },
+          { time: 58.20, duration: 0.5, pitch: "1", text: "話" },
+          { time: 59.21, duration: 0.3, pitch: "5", text: "因" },
+          { time: 59.65, duration: 0.3, pitch: "4", text: "你" },
+          { time: 60.02, duration: 0.3, pitch: "3", text: "創" },
+          { time: 60.42, duration: 0.3, pitch: "2", text: "更" },
+          { time: 60.82, duration: 0.3, pitch: "1", text: "愉" },
+          { time: 61.29, duration: 0.38, pitch: "1", text: "快" },
+          { time: 76.04, duration: 0.3, pitch: "3", text: "Pride" },
+          { time: 76.81, duration: 0.3, pitch: "2", text: "in" },
+          { time: 77.16, duration: 0.3, pitch: "1", text: "your" },
+          { time: 77.55, duration: 0.5, pitch: "低5", text: "eyes" },
+          { time: 78.26, duration: 0.3, pitch: "3", text: "為" },
+          { time: 78.61, duration: 0.3, pitch: "4", text: "我" },
+          { time: 78.94, duration: 0.3, pitch: "5", text: "閃" },
+          { time: 79.30, duration: 0.3, pitch: "6", text: "爍" },
+          { time: 79.65, duration: 0.3, pitch: "6", text: "像" },
+          { time: 80.02, duration: 0.3, pitch: "5", text: "最" },
+          { time: 80.41, duration: 0.5, pitch: "4", text: "初" },
+          { time: 81.17, duration: 0.3, pitch: "2", text: "唯" },
+          { time: 81.51, duration: 0.3, pitch: "3", text: "獨" },
+          { time: 81.87, duration: 0.3, pitch: "4", text: "你" },
+          { time: 82.58, duration: 0.3, pitch: "5", text: "欣" },
+          { time: 82.91, duration: 0.3, pitch: "5", text: "賞" },
+          { time: 83.31, duration: 0.5, pitch: "3", text: "我" },
+          { time: 84.47, duration: 0.3, pitch: "2", text: "比" },
+          { time: 84.78, duration: 0.3, pitch: "1", text: "我" },
+          { time: 85.72, duration: 0.3, pitch: "2", text: "更" },
+          { time: 86.10, duration: 0.5, pitch: "2", text: "多" },
+          { time: 86.94, duration: 0.3, pitch: "1", text: "埋" },
+          { time: 87.29, duration: 0.3, pitch: "2", text: "頭" },
+          { time: 87.65, duration: 0.3, pitch: "3", text: "做" },
+          { time: 88.34, duration: 0.3, pitch: "5", text: "願" },
+          { time: 88.68, duration: 0.3, pitch: "4", text: "你" },
+          { time: 89.06, duration: 0.5, pitch: "3", text: "可" },
+          { time: 89.79, duration: 0.3, pitch: "2", text: "能" },
+          { time: 90.17, duration: 0.3, pitch: "1", text: "為" },
+          { time: 90.50, duration: 0.3, pitch: "1", text: "我" },
+          { time: 90.84, duration: 0.3, pitch: "2", text: "驕" },
+          { time: 91.18, duration: 0.3, pitch: "3", text: "傲" },
+          { time: 91.54, duration: 0.3, pitch: "2", text: "更" },
+          { time: 91.95, duration: 0.5, pitch: "2", text: "多" },
+          { time: 92.71, duration: 0.3, pitch: "3", text: "無" },
+          { time: 93.03, duration: 0.3, pitch: "4", text: "論" },
+          { time: 93.40, duration: 0.3, pitch: "5", text: "有" },
+          { time: 93.76, duration: 0.3, pitch: "6", text: "誰" },
+          { time: 94.12, duration: 0.3, pitch: "6", text: "嫌" },
+          { time: 94.49, duration: 0.3, pitch: "5", text: "棄" },
+          { time: 94.84, duration: 0.5, pitch: "4", text: "我" },
+          { time: 95.64, duration: 0.3, pitch: "2", text: "投" },
+          { time: 95.94, duration: 0.3, pitch: "3", text: "入" },
+          { time: 96.30, duration: 0.3, pitch: "4", text: "卻" },
+          { time: 96.66, duration: 0.3, pitch: "5", text: "無" },
+          { time: 96.96, duration: 0.3, pitch: "5", text: "人" },
+          { time: 97.35, duration: 0.3, pitch: "2", text: "可" },
+          { time: 97.75, duration: 0.5, pitch: "1", text: "阻" },
+          { time: 98.50, duration: 0.3, pitch: "3", text: "See" },
+          { time: 98.84, duration: 0.3, pitch: "2", text: "me" },
+          { time: 99.22, duration: 0.3, pitch: "1", text: "fly" },
+          { time: 100.21, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 100.57, duration: 0.3, pitch: "6", text: "proud" },
+          { time: 100.95, duration: 0.3, pitch: "高1", text: "to" },
+          { time: 101.32, duration: 0.3, pitch: "高2", text: "fly" },
+          { time: 101.69, duration: 0.3, pitch: "高3", text: "up" },
+          { time: 102.14, duration: 0.5, pitch: "高1", text: "high" },
+          { time: 103.07, duration: 0.3, pitch: "6", text: "不" },
+          { time: 103.48, duration: 0.3, pitch: "5", text: "因" },
+          { time: 103.84, duration: 0.3, pitch: "4", text: "氣" },
+          { time: 104.19, duration: 0.3, pitch: "3", text: "壓" },
+          { time: 104.57, duration: 0.3, pitch: "2", text: "搖" },
+          { time: 104.98, duration: 0.5, pitch: "1", text: "擺" },
+          { time: 106.14, duration: 0.3, pitch: "5", text: "只" },
+          { time: 106.31, duration: 0.3, pitch: "4", text: "因" },
+          { time: 106.86, duration: 0.3, pitch: "3", text: "有" },
+          { time: 107.21, duration: 0.3, pitch: "2", text: "你" },
+          { time: 107.61, duration: 0.3, pitch: "4", text: "擁" },
+          { time: 107.96, duration: 0.5, pitch: "3", text: "戴" },
+          { time: 108.91, duration: 0.3, pitch: "5", text: "Be" },
+          { time: 109.29, duration: 0.3, pitch: "4", text: "lieve" },
+          { time: 109.65, duration: 0.3, pitch: "3", text: "me" },
+          { time: 110.01, duration: 0.3, pitch: "2", text: "I" },
+          { time: 110.35, duration: 0.3, pitch: "1", text: "can" },
+          { time: 110.69, duration: 0.5, pitch: "4", text: "fly" },
+          { time: 111.72, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 112.14, duration: 0.3, pitch: "6", text: "sing" },
+          { time: 112.52, duration: 0.3, pitch: "高1", text: "ing" },
+          { time: 112.91, duration: 0.3, pitch: "高2", text: "in" },
+          { time: 113.26, duration: 0.3, pitch: "高3", text: "the" },
+          { time: 113.63, duration: 0.5, pitch: "高1", text: "sky" },
+          { time: 114.61, duration: 0.3, pitch: "6", text: "假" },
+          { time: 115.03, duration: 0.3, pitch: "5", text: "使" },
+          { time: 115.40, duration: 0.3, pitch: "4", text: "我" },
+          { time: 115.76, duration: 0.3, pitch: "3", text: "算" },
+          { time: 116.13, duration: 0.3, pitch: "2", text: "神" },
+          { time: 116.50, duration: 0.5, pitch: "1", text: "話" },
+          { time: 117.70, duration: 0.3, pitch: "5", text: "因" },
+          { time: 118.03, duration: 0.3, pitch: "4", text: "你" },
+          { time: 118.35, duration: 0.3, pitch: "3", text: "創" },
+          { time: 118.68, duration: 0.3, pitch: "2", text: "更" },
+          { time: 119.04, duration: 0.3, pitch: "1", text: "愉" },
+          { time: 119.53, duration: 0.41, pitch: "1", text: "快" },
+          { time: 131.29, duration: 0.3, pitch: "5", text: "我" },
+          { time: 131.65, duration: 0.3, pitch: "4", text: "盼" },
+          { time: 132.06, duration: 0.3, pitch: "3", text: "有" },
+          { time: 132.43, duration: 0.3, pitch: "2", text: "一" },
+          { time: 132.77, duration: 0.3, pitch: "4", text: "天" },
+          { time: 133.15, duration: 0.3, pitch: "3", text: "將" },
+          { time: 133.50, duration: 0.3, pitch: "3", text: "你" },
+          { time: 133.89, duration: 0.3, pitch: "2", text: "抱" },
+          { time: 134.53, duration: 0.3, pitch: "1", text: "入" },
+          { time: 134.96, duration: 0.5, pitch: "2", text: "懷" },
+          { time: 135.69, duration: 0.3, pitch: "5", text: "昂" },
+          { time: 136.09, duration: 0.3, pitch: "5", text: "然" },
+          { time: 136.41, duration: 0.3, pitch: "4", text: "地" },
+          { time: 136.77, duration: 0.3, pitch: "3", text: "對" },
+          { time: 137.12, duration: 0.3, pitch: "2", text: "著" },
+          { time: 137.29, duration: 0.3, pitch: "4", text: "宇" },
+          { time: 137.71, duration: 0.3, pitch: "3", text: "宙" },
+          { time: 137.92, duration: 0.5, pitch: "3", text: "說" },
+          { time: 139.26, duration: 0.3, pitch: "5", text: "是" },
+          { time: 139.66, duration: 0.3, pitch: "4", text: "藉" },
+          { time: 140.02, duration: 0.3, pitch: "3", text: "著" },
+          { time: 140.21, duration: 0.3, pitch: "2", text: "你" },
+          { time: 140.69, duration: 0.3, pitch: "1", text: "的" },
+          { time: 141.12, duration: 0.5, pitch: "1", text: "風" },
+          { time: 141.79, duration: 0.3, pitch: "3", text: "Let" },
+          { time: 142.17, duration: 0.3, pitch: "2", text: "me" },
+          { time: 142.58, duration: 0.29, pitch: "1", text: "fly" },
+          { time: 143.63, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 144.01, duration: 0.3, pitch: "6", text: "proud" },
+          { time: 144.37, duration: 0.3, pitch: "高1", text: "to" },
+          { time: 144.74, duration: 0.3, pitch: "高2", text: "fly" },
+          { time: 145.08, duration: 0.3, pitch: "高3", text: "up" },
+          { time: 145.50, duration: 0.5, pitch: "高1", text: "high" },
+          { time: 146.50, duration: 0.3, pitch: "6", text: "不" },
+          { time: 146.87, duration: 0.3, pitch: "5", text: "因" },
+          { time: 147.24, duration: 0.3, pitch: "4", text: "氣" },
+          { time: 147.57, duration: 0.3, pitch: "3", text: "壓" },
+          { time: 147.96, duration: 0.3, pitch: "2", text: "搖" },
+          { time: 148.34, duration: 0.5, pitch: "1", text: "擺" },
+          { time: 149.31, duration: 0.3, pitch: "5", text: "只" },
+          { time: 149.55, duration: 0.3, pitch: "4", text: "因" },
+          { time: 150.27, duration: 0.3, pitch: "3", text: "有" },
+          { time: 150.55, duration: 0.3, pitch: "2", text: "你" },
+          { time: 151.01, duration: 0.3, pitch: "4", text: "擁" },
+          { time: 151.34, duration: 0.5, pitch: "3", text: "戴" },
+          { time: 152.27, duration: 0.3, pitch: "5", text: "Be" },
+          { time: 152.49, duration: 0.3, pitch: "4", text: "lieve" },
+          { time: 153.02, duration: 0.3, pitch: "3", text: "me" },
+          { time: 153.44, duration: 0.3, pitch: "2", text: "I" },
+          { time: 153.75, duration: 0.3, pitch: "1", text: "can" },
+          { time: 154.15, duration: 0.5, pitch: "4", text: "fly" },
+          { time: 155.21, duration: 0.3, pitch: "5", text: "I'm" },
+          { time: 155.56, duration: 0.3, pitch: "6", text: "sing" },
+          { time: 155.91, duration: 0.3, pitch: "高1", text: "ing" },
+          { time: 156.27, duration: 0.3, pitch: "高2", text: "in" },
+          { time: 156.63, duration: 0.3, pitch: "高3", text: "the" },
+          { time: 157.01, duration: 0.22, pitch: "高1", text: "sky" },
+          { time: 158.14, duration: 0.3, pitch: "6", text: "假" },
+          { time: 158.49, duration: 0.3, pitch: "5", text: "使" },
+          { time: 158.81, duration: 0.3, pitch: "4", text: "愛" },
+          { time: 159.17, duration: 0.3, pitch: "3", text: "有" },
+          { time: 159.51, duration: 0.3, pitch: "2", text: "奇" },
+          { time: 159.92, duration: 0.5, pitch: "1", text: "蹟" },
+          { time: 161.01, duration: 0.3, pitch: "5", text: "跟" },
+          { time: 161.36, duration: 0.3, pitch: "4", text: "你" },
+          { time: 161.69, duration: 0.3, pitch: "3", text: "創" },
+          { time: 162.07, duration: 0.3, pitch: "2", text: "最" },
+          { time: 162.42, duration: 0.3, pitch: "1", text: "愉" },
+          { time: 162.83, duration: 0.5, pitch: "1", text: "快" },
+          { time: 165.69, duration: 0.3, pitch: "1", text: "我" },
+          { time: 166.47, duration: 0.3, pitch: "2", text: "覺" },
+          { time: 166.81, duration: 0.3, pitch: "3", text: "得" },
+          { time: 167.15, duration: 0.3, pitch: "4", text: "光" },
+          { time: 167.87, duration: 0.5, pitch: "5", text: "榮" },
+          { time: 168.64, duration: 0.3, pitch: "3", text: "因" },
+          { time: 169.85, duration: 0.3, pitch: "4", text: "有" },
+          { time: 170.08, duration: 0.3, pitch: "2", text: "你" },
+          { time: 172.25, duration: 0.49, pitch: "1", text: "擁" },
+          { time: 173.21, duration: 1.88, pitch: "1", text: "戴" }
+        ];
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                
+                isSystemReady = true;
+                document.getElementById('startBtn').innerText = "✅ 麥克風已連接，請點擊下方播放";
+                document.getElementById('startBtn').disabled = true;
+                
+                drawGame();
+            } catch (err) {
+                alert('⚠️ 哎呀！請確保瀏覽器允許麥克風權限！');
+            }
+        });
+
+        function autoCorrelate(buf, sampleRate) {
+            let SIZE = buf.length;
+            let rms = 0;
+            for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+            rms = Math.sqrt(rms / SIZE);
+            if (rms < 0.02) return -1; 
+
+            let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+            for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+            for (let i = 1; i < SIZE / 2; i++) if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+            buf = buf.slice(r1, r2);
+            SIZE = buf.length;
+
+            let c = new Array(SIZE).fill(0);
+            for (let i = 0; i < SIZE; i++)
+                for (let j = 0; j < SIZE - i; j++) c[i] = c[i] + buf[j] * buf[j + i];
+
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < SIZE; i++) {
+                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+            }
+            return sampleRate / maxpos;
+        }
+
+        function drawGame() {
+            if (!isSystemReady) return;
+
+            requestAnimationFrame(drawGame);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            let currentPitch = autoCorrelate(buffer, audioContext.sampleRate);
+            
+            if (currentPitch !== -1) {
+                pitchDisplay.innerText = Math.round(currentPitch);
+            } else {
+                pitchDisplay.innerText = "沒聲音";
+            }
+
+            let currentTime = audioPlayer.currentTime;
+
+            // 🎯 畫橘色判定線
+            const JUDGE_LINE = 150;
+            ctx.strokeStyle = "rgba(255, 152, 0, 0.8)"; 
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(JUDGE_LINE, 0);
+            ctx.lineTo(JUDGE_LINE, canvas.height);
+            ctx.stroke();
+
+            let activeNoteFound = false;
+
+            rawNotes.forEach(note => {
+                let targetHz = PITCH_MAP[note.pitch] || 350; 
+
+                let noteX = JUDGE_LINE + (note.time - currentTime) * 150;
+                let noteWidth = Math.max(note.duration * 150, 40); 
+                
+                // 動態排版：將 C4 到 C5 的頻率映射到畫面 Y 軸
+                let noteY = canvas.height - ((targetHz - 150) / 400) * canvas.height;
+                noteY = Math.max(30, Math.min(canvas.height - 60, noteY)); 
+
+                let isActive = (currentTime >= note.time - 0.2) && (currentTime <= note.time + note.duration + 0.2);
+                let isPast = currentTime > (note.time + note.duration + 0.2);
+
+                // ======================================
+                // 🎶 無視八度音的「跨八度對比黑科技」
+                // ======================================
+                if (isActive) {
+                    activeNoteFound = true;
+                    
+                    if (currentPitch !== -1) {
+                        // 利用對數計算比例，只要音名(Do/Re/Mi)對了，不管高低八度都會算對！
+                        let ratio = currentPitch / targetHz;
+                        let semitonesShift = Math.abs(12 * Math.log2(ratio));
+                        
+                        // 計算與標準音的半音誤差 (忽略八度)
+                        let distanceToNoteClass = semitonesShift % 12;
+                        if (distanceToNoteClass > 6) distanceToNoteClass = 12 - distanceToNoteClass;
+
+                        // 容錯率設定：誤差在 2 個半音內都算對 (給小朋友滿滿的成就感！)
+                        if (distanceToNoteClass <= 2.0) {
+                            note.status = "hit";
+                            hitStatus.innerText = "✨ 音準完美：『" + note.text + "』！";
+                            hitStatus.style.color = "#4CAF50";
+                        }
+                    }
+
+                    // 提示邏輯
+                    if (note.status !== "hit") {
+                        if (currentPitch === -1) {
+                            hitStatus.innerText = "👀 該開口唱囉：『" + note.text + "』...";
+                            hitStatus.style.color = "#FF9800";
+                        } else {
+                            hitStatus.innerText = "🔥 努力唱！尋找音準...";
+                            hitStatus.style.color = "#FF5722";
+                        }
+                    }
+                } else if (isPast) {
+                    if (note.status !== "hit") note.status = "missed";
+                }
+
+                // 顏色鎖定
+                if (note.status === "hit") {
+                    ctx.fillStyle = "#81C784"; // 活力綠 
+                } else if (note.status === "missed") {
+                    ctx.fillStyle = "#E57373"; // 警示紅 
+                } else {
+                    ctx.fillStyle = "#FFD54F"; // 陽光黃 
+                }
+
+                // 畫出方塊
+                ctx.beginPath();
+                ctx.roundRect(noteX, noteY, noteWidth, 40, 10);
+                ctx.fill();
+                ctx.strokeStyle = "#333";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.fillStyle = "#212121";
+                ctx.font = "bold 20px 'Microsoft JhengHei', sans-serif";
+                ctx.fillText(note.text, noteX + 10, noteY + 28);
+            });
+
+            if (!activeNoteFound && !audioPlayer.paused) {
+                hitStatus.innerText = "🎵 準備迎接下一個音符...";
+                hitStatus.style.color = "#607D8B";
+            }
+        }
+    </script>
+</body>
+</html>
